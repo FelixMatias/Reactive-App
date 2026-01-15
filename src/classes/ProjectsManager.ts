@@ -2,8 +2,9 @@ import { IProject, Project } from "./Project"
 
 export class ProjectsManager {
   list: Project[] = []
-  OnProjectCreated = (project: Project) => {}
-  OnProjectDeleted = (id: string) => {}
+  OnProjectCreated: (project: Project) => void = () => {} 
+  OnProjectDeleted: (id: string) => void = () =>{}
+  OnProjectUpdated: (id: string, project: IProject) => Promise<void> = async () => {}
 
   filterProjects(value: string) {
     const filteredProjects = this.list.filter((project) => {
@@ -41,6 +42,21 @@ export class ProjectsManager {
     })
     this.list = remaining
     this.OnProjectDeleted(id)
+  }
+
+  updateProject(id: string, data: Partial<Project>) {
+    const project = this.getProject(id)
+    if (!project) return
+    Object.assign(project, data)
+    this.OnProjectUpdated(id, {
+    name: project.name,
+    description: project.description,
+    status: project.status,
+    userRole: project.userRole,
+    finishDate: project.finishDate,
+    cost: project.cost,
+    progress: project.progress
+  })
   }
   
   exportToJSON(fileName: string = "projects") {

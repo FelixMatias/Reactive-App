@@ -1,8 +1,11 @@
-import * as React from "react";
-import * as Router from "react-router-dom";
-import { ProjectsManager } from "../classes/ProjectsManager";
-import { ThreeViewer } from "./ThreeViewer";
-import { deleteDocument } from "../firebase";
+import * as React from "react"
+import * as Router from "react-router-dom"
+import { ProjectsManager } from "../classes/ProjectsManager"
+import { toast } from "../classes/toast"
+import { ThreeViewer } from "./ThreeViewer"
+import { deleteDocument, updateDocument } from "../firebase"
+import { IProject } from "../classes/Project"
+import { ProjectForm } from "./ProjectForm"
 
 interface Props {
   projectsManager: ProjectsManager
@@ -10,15 +13,42 @@ interface Props {
 
 export function ProjectDetailsPage(props: Props) {
   const routeParams = Router.useParams<{id: string}>()
-  if (!routeParams.id) {return (<p>Project ID is needed to see this page</p>)}
-  const project = props.projectsManager.getProject(routeParams.id)
-  if (!project) {return (<p>The project with ID {routeParams.id} wasn't found.</p>)}
-
   const navigateTo = Router.useNavigate()
-  props.projectsManager.OnProjectDeleted = async (id) => {
-    await deleteDocument("/projects", id)
-    navigateTo("/")
-  }
+  toast.info("Just a test")
+  if (!routeParams.id) toast.error(`Project ID is needed to see this page`)
+  //useState store the project to updates UI
+  const [project, setProject] = React.useState(props.projectsManager.getProject(routeParams.id)!)
+  
+  if (!project) toast.error(`Project ID {routeParams.id} wasn't found`)
+  
+  React.useEffect(() => {
+    //Preserve ProjectsManager's integrity during the component lifecycle to prevent side effects
+    const originalOnDeleted = props.projectsManager.OnProjectDeleted
+    const originalOnUpdated = props.projectsManager.OnProjectUpdated
+
+    props.projectsManager.OnProjectDeleted = async (id) => {
+      await deleteDocument("/projects", id)
+      navigateTo("/")
+    }  
+    props.projectsManager.OnProjectUpdated = async (id, updatedProject) => {
+      // Update Firestore
+      await updateDocument<IProject>("/projects", id, updatedProject)
+      //Update local state with data from Firestore for refresh UI 
+      setProject((prev) => {
+        if (!prev) return prev
+        return { ...prev, ...updatedProject}
+      })
+    }
+    }, [props.projectsManager, navigateTo])
+
+    const onProjectEdit = () => {
+      const modal = document.getElementById("new-project-modal")
+      if (!(modal && modal instanceof HTMLDialogElement)) {return}
+      modal.showModal()
+    }
+
+    
+
   return (
     <div className="page" id="project-details">
       <header>
@@ -51,7 +81,7 @@ export function ProjectDetailsPage(props: Props) {
               >
                 HC
               </p>
-              <button className="btn-secondary">
+              <button onClick={onProjectEdit} className="btn-secondary">
                 <p style={{ width: "100%" }}>Edit</p>
               </button>
             </div>
@@ -90,7 +120,7 @@ export function ProjectDetailsPage(props: Props) {
                   <p style={{ color: "#969696", fontSize: "var(--font-sm)" }}>
                     Finish Date
                   </p>
-                  <p>{project.finishDate.toDateString()}</p>
+                  <p>{project.finishDate instanceof Date ? project.finishDate.toDateString() : new Date(project.finishDate).toDateString()}</p>
                 </div>
               </div>
               <div
@@ -182,6 +212,9 @@ export function ProjectDetailsPage(props: Props) {
           </div>
         </div>
         <ThreeViewer />
+        <dialog id="new-project-modal">
+           <ProjectForm project={project} projectsManager = {props.projectsManager} />
+        </dialog>
       </div>
     </div>
   );
