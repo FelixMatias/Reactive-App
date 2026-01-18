@@ -1,139 +1,131 @@
 import * as React from "react"
-import * as Firestore from "firebase/firestore"
-import { IProject, Project, ProjectStatus, UserRole } from "../classes/Project"
 import { ProjectsManager } from "../classes/ProjectsManager"
-import { toast } from "../classes/toast"
-import { getCollection } from "../firebase"
+import { Project, IProject, ProjectStatus, UserRole } from "../classes/Project"
 
 interface Props {
-  project?: Project
+  open: boolean
+  onClose: () => void
   projectsManager: ProjectsManager
+  project?: Project // If provided, the form enters "Edit Mode"
 }
 
-const projectsCollection = getCollection<IProject>("projects")
+export function ProjectForm({ open, onClose, projectsManager, project }: Props) {
+  const dialogRef = React.useRef<HTMLDialogElement>(null)
 
-//Convert form data into a plain IProject object for Firestore
-function formDataToProject(formData: FormData): IProject {
-  return {
-    name: String(formData.get("name")),
-    description: String(formData.get("description")),
-    status: formData.get("status") as ProjectStatus,
-    userRole: formData.get("userRole") as UserRole,
-    finishDate: new Date(String(formData.get("finishDate")))
-  }
-}
-
-export function ProjectForm({ project, projectsManager }: Props) {
-  const finishDate = project?.finishDate ? project.finishDate.toISOString().split("T")[0] : new Date().toISOString().split("T")[0]
-  
-const onFormSubmit = async (e: React.FormEvent) => {
-  e.preventDefault()
-  const projectForm = document.getElementById("new-project-form") as HTMLFormElement
-  const formData = new FormData(projectForm)
-  const projectData = formDataToProject(formData)
-  try {
-    //Create a new project
-    if (!project) {
-      const docRef = await Firestore.addDoc(projectsCollection, projectData)  
-      projectsManager.newProject(projectData, docRef.id)
-    }else { //Edit an existing project
-        projectsManager.updateProject(project.id, projectData)
+  /**
+   * DIALOG LIFECYCLE CONTROLLER
+   * Synchronizes the Boolean 'open' prop with the native browser <dialog> element.
+   */
+  React.useEffect(() => {
+    const dialog = dialogRef.current
+    if (!dialog) return
+    if (open) {
+      if (!dialog.open) dialog.showModal() // Standard browser method for modals
+    } else {
+      if (dialog.open) dialog.close()
     }
-    projectForm.reset()
-    const modal = document.getElementById("new-project-modal")
-    if (modal instanceof HTMLDialogElement) modal.close()
-  } catch (err) {
-    toast.error(`Failed to save project: ${(err as Error).message}`)
-    console.error(err)
-}
-}
+  }, [open])
 
-const onFormReset = (e: React.FormEvent<HTMLFormElement>) => {
+  /**
+   * FORM SUBMISSION HANDLER
+   * Extracts data from the form and decides whether to CREATE or UPDATE via the Manager.
+   */
+  const onFormSubmit = (e: React.FormEvent) => {
     e.preventDefault()
-    const modal = document.getElementById("new-project-modal")
-    if (modal instanceof HTMLDialogElement) modal.close() 
+    const formData = new FormData(e.target as HTMLFormElement)
+    
+    // Construct the data object following the IProject interface
+    const projectData: Partial<IProject> = {
+      name: formData.get("name") as string,
+      description: formData.get("description") as string,
+      status: formData.get("status") as ProjectStatus, // Note: Values are capitalized (e.g., "Active")
+      userRole: formData.get("userRole") as UserRole,
+      finishDate: new Date(formData.get("finishDate") as string),
+      cost: Number(formData.get("cost")),
     }
+
+    if (project && project.id) {
+      // MODE: EDIT -> Triggers the update logic in the controller
+      projectsManager.updateProject(project.id, projectData)
+    } else {
+      // MODE: CREATE -> Adds a new entry to the Firestore 'projects' collection
+      projectsManager.newProject(projectData as IProject)
+    }
+
+    onClose() // Closes the modal after logic is fired
+  }
+
+  // Pre-formatting the date string for the HTML <input type="date"> (format: YYYY-MM-DD)
+  const formattedDate = project?.finishDate 
+    ? new Date(project.finishDate).toISOString().split('T')[0] 
+    : new Date().toISOString().split('T')[0]
 
   return (
-    <form onSubmit={(e) => onFormSubmit(e)} onReset={onFormReset} id="new-project-form">
-          <h2>New Project</h2>
-          <div className="input-list">
+    <dialog 
+      ref={dialogRef} 
+      onClose={onClose} // Syncs state if the user presses the 'Esc' key
+      style={{ padding: 0, border: "none", borderRadius: "8px", background: "transparent" }}
+    >
+      <form onSubmit={onFormSubmit} className="dashboard-card" style={{ padding: "5px", width: "460px" }}>
+        <h2 style={{ marginBottom: "10px" }}>
+          {project ? "Edit Project" : "New Project"}
+        </h2>
+        
+        <div className="input-list" style={{ display: "flex", flexDirection: "column", gap: "20px" }}>
+          
+          <div className="form-field-container">
+            <label style={{ display: "flex", alignItems: "center", gap: "5px", marginBottom: "8px" }}>
+              <span className="material-icons-round" style={{ fontSize: "18px" }}>label</span>
+              Project Name
+            </label>
+            <input name="name" type="text" defaultValue={project?.name} placeholder="e.g. Hospital Wing A" required />
+          </div>
+
+          <div className="form-field-container">
+            <label style={{ marginBottom: "8px", display: "block" }}>Description</label>
+            <textarea name="description" rows={4} defaultValue={project?.description} placeholder="Overview of the BIM scope..."></textarea>
+          </div>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
             <div className="form-field-container">
-              <label>
-                <span className="material-icons-round">apartment</span>Name
-              </label>
-              <input
-                name="name"
-                type="text"
-                placeholder="What's the name of your project?"
-                defaultValue={project?.name || ""}
-              />
-              <p
-                style={{
-                  color: "gray",
-                  fontSize: "var(--font-sm)",
-                  marginTop: 5,
-                  fontStyle: "italic"
-                }}
-              >
-                TIP: Give it a short name
-              </p>
-            </div>
-            <div className="form-field-container">
-              <label>
-                <span className="material-icons-round">subject</span>Description
-              </label>
-              <textarea
-                name="description"
-                cols={30}
-                rows={5}
-                placeholder="Give your project a nice description! So people will be jealous about it."
-                defaultValue={project?.description ?? ""}
-              />
-            </div>
-            <div className="form-field-container">
-              <label>
-                <span className="material-icons-round">person</span>Role
-              </label>
-              <select name="userRole" defaultValue={project?.userRole ?? "Architect"}>
-                <option>Architect</option>
-                <option>Engineer</option>
-                <option>Developer</option>
+              <label style={{ marginBottom: "8px", display: "block" }}>Status</label>
+              <select name="status" defaultValue={project?.status || "Active"}>
+                <option value="Pending">Pending</option>
+                <option value="Active">Active</option>
+                <option value="Finished">Finished</option>
               </select>
             </div>
+
             <div className="form-field-container">
-              <label>
-                <span className="material-icons-round">not_listed_location</span>
-                Status
-              </label>
-              <select name="status" defaultValue={project?.status ?? "Pending"}>
-                <option>Pending</option>
-                <option>Active</option>
-                <option>Finished</option>
+              <label style={{ marginBottom: "8px", display: "block" }}>User Role</label>
+              <select name="userRole" defaultValue={project?.userRole || "Architect"}>
+                <option value="Architect">Architect</option>
+                <option value="Engineer">Engineer</option>
+                <option value="Developer">Developer</option>
               </select>
-            </div>
-            <div className="form-field-container">
-              <label htmlFor="finishDate">
-                <span className="material-icons-round">calendar_month</span>
-                Finish Date
-              </label>
-              <input name="finishDate" type="date" defaultValue={finishDate}/>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                margin: "10px 0px 10px auto",
-                columnGap: 10
-              }}
-            >
-              <button type="reset" style={{ backgroundColor: "transparent" }}>
-                Cancel
-              </button>
-              <button type="submit" style={{ backgroundColor: "rgb(18, 145, 18)" }}>
-                Accept
-              </button>
             </div>
           </div>
-        </form>
+
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "20px" }}>
+             <div className="form-field-container">
+                <label style={{ marginBottom: "8px", display: "block" }}>Finish Date</label>
+                <input name="finishDate" type="date" defaultValue={formattedDate} required />
+              </div>
+
+              <div className="form-field-container">
+                <label style={{ marginBottom: "8px", display: "block" }}>Budget (USD)</label>
+                <input name="cost" type="number" defaultValue={project?.cost || 0} required />
+              </div>
+          </div>
+
+          <div style={{ display: "flex", justifyContent: "flex-end", gap: "15px", marginTop: "20px" }}>
+            <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
+            <button type="submit" className="btn-secondary" >
+              {project ? "Save Changes" : "Create Project"}
+            </button>
+          </div>
+        </div>
+      </form>
+    </dialog>
   )
 }

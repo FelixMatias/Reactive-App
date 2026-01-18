@@ -4,7 +4,9 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "vite"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "keywords": [],
   "author": "",
@@ -19,6 +21,8 @@
   },
   "dependencies": {
     "firebase": "^12.7.0",
+    "firebase-tools": "^15.3.0",
+    "g": "^2.0.1",
     "react": "18.2.0",
     "react-dom": "18.2.0",
     "react-router-dom": "^6.30.3",

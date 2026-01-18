@@ -1,221 +1,157 @@
 import * as React from "react"
 import * as Router from "react-router-dom"
 import { ProjectsManager } from "../classes/ProjectsManager"
-import { toast } from "../classes/toast"
+import { ProjectTodos } from "./ProjectTodos"
 import { ThreeViewer } from "./ThreeViewer"
-import { deleteDocument, updateDocument } from "../firebase"
-import { IProject } from "../classes/Project"
+import { DashboardSummary } from "./DashboardSummary"
 import { ProjectForm } from "./ProjectForm"
+import { Project } from "../classes/Project"
 
 interface Props {
   projectsManager: ProjectsManager
 }
 
-export function ProjectDetailsPage(props: Props) {
-  const routeParams = Router.useParams<{id: string}>()
-  const navigateTo = Router.useNavigate()
-  toast.info("Just a test")
-  if (!routeParams.id) toast.error(`Project ID is needed to see this page`)
-  //useState store the project to updates UI
-  const [project, setProject] = React.useState(props.projectsManager.getProject(routeParams.id)!)
+export function ProjectDetailsPage({ projectsManager }: Props) {
+  const params = Router.useParams<{ id: string }>()
+  const navigate = Router.useNavigate()
   
-  if (!project) toast.error(`Project ID {routeParams.id} wasn't found`)
+  // Controls Edit Form visibility
+  const [isEditFormOpen, setIsEditFormOpen] = React.useState(false)
   
+  const [project, setProject] = React.useState<Project | undefined>(
+    projectsManager.getProject(params.id || "")
+  )
+
+  // SUBSCRIPTION: Listen for Manager changes to refresh UI
   React.useEffect(() => {
-    //Preserve ProjectsManager's integrity during the component lifecycle to prevent side effects
-    const originalOnDeleted = props.projectsManager.OnProjectDeleted
-    const originalOnUpdated = props.projectsManager.OnProjectUpdated
+    if (!params.id) return
 
-    props.projectsManager.OnProjectDeleted = async (id) => {
-      await deleteDocument("/projects", id)
-      navigateTo("/")
-    }  
-    props.projectsManager.OnProjectUpdated = async (id, updatedProject) => {
-      // Update Firestore
-      await updateDocument<IProject>("/projects", id, updatedProject)
-      //Update local state with data from Firestore for refresh UI 
-      setProject((prev) => {
-        if (!prev) return prev
-        return { ...prev, ...updatedProject}
-      })
-    }
-    }, [props.projectsManager, navigateTo])
-
-    const onProjectEdit = () => {
-      const modal = document.getElementById("new-project-modal")
-      if (!(modal && modal instanceof HTMLDialogElement)) {return}
-      modal.showModal()
+    const syncProject = () => {
+      const updated = projectsManager.getProject(params.id!)
+      if (updated) { 
+        // Clone project to trigger React re-render via reference change
+        setProject(new Project(updated, updated.id)) 
+      }
     }
 
-    
+    const unsubscribeProject = projectsManager.subscribeToProjects(syncProject)
+    const unsubscribeTodos = projectsManager.subscribeToTodos(syncProject)
+
+    return () => {
+      unsubscribeProject()
+      unsubscribeTodos()
+    }
+  }, [params.id, projectsManager])
+
+  const getInitials = (name: string) => {
+    const words = name.trim().split(/\s+/)
+    return words.length >= 2 
+      ? (words[0][0] + words[1][0]).toUpperCase() 
+      : name.substring(0, 2).toUpperCase()
+  }
+
+  if (!project) { 
+    return (
+      <div className="page" style={{ padding: "40px" }}>
+        <h2 style={{ color: "var(--error)" }}>Project not found</h2>
+        <button onClick={() => navigate("/")} className="btn-secondary" style={{ marginTop: "20px" }}>
+          Go Back to Dashboard
+        </button>
+      </div>
+    ) 
+  }
 
   return (
     <div className="page" id="project-details">
+      {/* Integration of the Form with project data passed in */}
+      <ProjectForm 
+        open={isEditFormOpen} 
+        onClose={() => setIsEditFormOpen(false)} 
+        projectsManager={projectsManager} 
+        project={project}
+      />
+
       <header>
         <div>
           <h2 data-project-info="name">{project.name}</h2>
-          <p style={{ color: "#969696" }}>{project.description}</p>
+          <p data-project-info="description" style={{ color: "rgba(150,150,150,1)", marginTop: "5px" }}>
+            {project.description}
+          </p>
         </div>
-        <button onClick={() => props.projectsManager.deleteProject(project.id)} style={{backgroundColor: "red"}}>Delete Project</button>
+        {/* Toggle the Edit Form State */}
+        <button className="btn-secondary" onClick={() => setIsEditFormOpen(true)}>
+          <span className="material-icons-round">edit</span>
+          Edit Project
+        </button>
       </header>
+
       <div className="main-page-content">
-        <div style={{ display: "flex", flexDirection: "column", rowGap: 30 }}>
-          <div className="dashboard-card" style={{ padding: "30px 0" }}>
-            <div
-              style={{
-                display: "flex",
-                justifyContent: "space-between",
-                alignItems: "center",
-                padding: "0px 30px",
-                marginBottom: 30
-              }}
-            >
-              <p
-                style={{
-                  fontSize: 20,
-                  backgroundColor: "#ca8134",
-                  aspectRatio: 1,
-                  borderRadius: "100%",
-                  padding: 12
-                }}
-              >
-                HC
-              </p>
-              <button onClick={onProjectEdit} className="btn-secondary">
-                <p style={{ width: "100%" }}>Edit</p>
-              </button>
+        <aside style={{ display: "flex", flexDirection: "column", rowGap: "10px" }}>
+          <DashboardSummary project={project} />
+
+          <div className="dashboard-card" style={{ padding: "20px" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "15px" }}>
+              <div style={{ 
+                display: "flex", backgroundColor: "var(--primary)", width: "50px", height: "50px", 
+                borderRadius: "10px", alignItems: "center", justifyContent: "center" 
+              }}>
+                <p style={{ fontSize: "var(--font-xl)", color: "white", fontWeight: "bold", margin: 0 }}>
+                    {getInitials(project.name)}
+                </p>
+              </div>
+              <div style={{ textAlign: "right" }}>
+                 <p style={{ color: "rgba(150,150,150,1)", fontSize: "var(--font-sm)", margin: 0 }}>STATUS</p>
+                 <p style={{ color: "var(--primary-400)", fontWeight: 600, margin: 0 }}>{project.status}</p>
+              </div>
             </div>
-            <div style={{ padding: "0 30px" }}>
-              <div>
-                <h5>{project.name}</h5>
-                <p>{project.description}</p>
+
+            <div style={{ display: "flex", flexDirection: "column", rowGap: "10px" }}>
+                <div className="card-property">
+                  <p style={{ color: "rgba(150,150,150,1)" }}>Cost</p>
+                  <p style={{ fontWeight: 500 }}>${project.cost.toLocaleString()}</p>
+                </div>
+                <div className="card-property">
+                  <p style={{ color: "rgba(150,150,150,1)" }}>Role</p>
+                  <p style={{ fontWeight: 500 }}>{project.userRole}</p>
+                </div>
+                <div className="card-property">
+                  <p style={{ color: "rgba(150,150,150,1)" }}>Finish Date</p>
+                  <p style={{ fontWeight: 500 }}>{project.finishDate.toLocaleDateString()}</p>
+                </div>
+            </div>
+
+            <div style={{ marginTop: "25px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "8px" }}>
+                <p style={{ margin: 0, fontSize: "var(--font-sm)", color: "rgba(150,150,150,1)" }}>Completion</p>
+                <p style={{ margin: 0, fontSize: "var(--font-sm)", color: "var(--primary-400)", fontWeight: "bold" }}>
+                  {project.progress}%
+                </p>
               </div>
-              <div
-                style={{
-                  display: "flex",
-                  columnGap: 30,
-                  padding: "30px 0px",
-                  justifyContent: "space-between"
-                }}
-              >
-                <div>
-                  <p style={{ color: "#969696", fontSize: "var(--font-sm)" }}>
-                    Status
-                  </p>
-                  <p>{project.status}</p>
-                </div>
-                <div>
-                  <p style={{ color: "#969696", fontSize: "var(--font-sm)" }}>
-                    Cost
-                  </p>
-                  <p>$ {project.cost}</p>
-                </div>
-                <div>
-                  <p style={{ color: "#969696", fontSize: "var(--font-sm)" }}>
-                    Role
-                  </p>
-                  <p>{project.userRole}</p>
-                </div>
-                <div>
-                  <p style={{ color: "#969696", fontSize: "var(--font-sm)" }}>
-                    Finish Date
-                  </p>
-                  <p>{project.finishDate instanceof Date ? project.finishDate.toDateString() : new Date(project.finishDate).toDateString()}</p>
-                </div>
-              </div>
-              <div
-                style={{
-                  backgroundColor: "#404040",
-                  borderRadius: 9999,
-                  overflow: "auto"
-                }}
-              >
-                <div
-                  style={{
-                    width: `${project.progress * 100}%`,
-                    backgroundColor: "green",
-                    padding: "4px 0",
-                    textAlign: "center"
-                  }}
-                >
-                  {project.progress * 100}%
-                </div>
+              <div style={{ backgroundColor: "var(--background-200)", height: "8px", borderRadius: "10px", overflow: "hidden" }}>
+                <div style={{ 
+                    width: `${project.progress}%`, 
+                    backgroundColor: "var(--primary)", 
+                    height: "100%", 
+                    transition: "width 0.4s ease-in-out" 
+                }} />
               </div>
             </div>
           </div>
-          <div className="dashboard-card" style={{ flexGrow: 1 }}>
-            <div
-              style={{
-                padding: "20px 30px",
-                display: "flex",
-                alignItems: "center",
-                justifyContent: "space-between"
-              }}
-            >
-              <h4>To-Do</h4>
-              <div
-                style={{
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "end",
-                  columnGap: 20
-                }}
-              >
-                <div
-                  style={{ display: "flex", alignItems: "center", columnGap: 10 }}
-                >
-                  <span className="material-icons-round">search</span>
-                  <input
-                    type="text"
-                    placeholder="Search To-Do's by name"
-                    style={{ width: "100%" }}
-                  />
-                </div>
-                <span className="material-icons-round">add</span>
-              </div>
-            </div>
-            <div
-              style={{
-                display: "flex",
-                flexDirection: "column",
-                padding: "10px 30px",
-                rowGap: 20
-              }}
-            >
-              <div className="todo-item">
-                <div
-                  style={{
-                    display: "flex",
-                    justifyContent: "space-between",
-                    alignItems: "center"
-                  }}
-                >
-                  <div
-                    style={{ display: "flex", columnGap: 15, alignItems: "center" }}
-                  >
-                    <span
-                      className="material-icons-round"
-                      style={{
-                        padding: 10,
-                        backgroundColor: "#686868",
-                        borderRadius: 10
-                      }}
-                    >
-                      construction
-                    </span>
-                    <p>Make anything here as you want, even something longer.</p>
-                  </div>
-                  <p style={{ marginLeft: 10 }}>Fri, 20 sep</p>
-                </div>
-              </div>
-            </div>
-          </div>
+
+          <ProjectTodos projectId={project.id} projectsManager={projectsManager} />
+        </aside>
+
+        <div style={{ 
+          position: "relative", 
+          borderRadius: "8px", 
+          overflow: "hidden", 
+          backgroundColor: "#000",
+          border: "1px solid var(--background-200)",
+          minHeight: "600px" 
+        }}>
+            <ThreeViewer />
         </div>
-        <ThreeViewer />
-        <dialog id="new-project-modal">
-           <ProjectForm project={project} projectsManager = {props.projectsManager} />
-        </dialog>
       </div>
     </div>
-  );
+  )
 }
